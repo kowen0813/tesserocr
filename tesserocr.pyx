@@ -1112,6 +1112,7 @@ cdef class PyTessBaseAPI:
     cdef:
         TessBaseAPI _baseapi
         Pix *_pix
+        ETEXT_DESC _monitor
 
     @staticmethod
     def Version():
@@ -1863,6 +1864,28 @@ cdef class PyTessBaseAPI:
         with nogil:
             res = self._baseapi.Recognize(&monitor)
         return res == 0
+
+    def Recognize2monitor(self):
+        """Recognize the image from :meth:`SetImage`, generating Tesseract
+        internal structures. Returns ``True`` on success.
+        Using this API TessBaseAPI object will save ETEXT_DESC object in it, 
+        then call Get_progress to get progress.
+
+        Optional. The `Get*Text` methods below will call :meth:`Recognize` if needed.
+
+        After :meth:`Recognize`, the output is kept internally until the next :meth:`SetImage`.
+        """
+        cdef:
+            int res
+        with nogil:
+            res = self._baseapi.Recognize(&(self._monitor))
+        return res == 0
+
+    def Get_progress(self):
+        """
+        """
+        progress = self._monitor.progress
+        return progress
 
     """Methods to retrieve information after :meth:`SetImage`,
     :meth:`Recognize` or :meth:`TesseractRect`. (:meth:`Recognize` is called implicitly if needed.)"""

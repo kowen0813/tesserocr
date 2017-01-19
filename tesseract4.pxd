@@ -110,7 +110,15 @@ cdef extern from "tesseract/strngs.h" nogil:
        STRING &operator=(cchar_t *)
 
 cdef extern from "tesseract/ocrclass.h" nogil:
+    ctypedef bool (*CANCEL_FUNC)(void* cancel_this, int words);
     cdef cppclass ETEXT_DESC:
+        int count
+        int progress
+        int more_to_come
+        int ocr_alive
+        int err_code
+        CANCEL_FUNC cancel
+        void* cancel_this
         ETEXT_DESC() except +
 
 cdef extern from "tesseract/pageiterator.h" namespace "tesseract" nogil:
