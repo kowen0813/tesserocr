@@ -1881,11 +1881,24 @@ cdef class PyTessBaseAPI:
             res = self._baseapi.Recognize(&(self._monitor))
         return res == 0
 
-    def Get_progress(self):
-        """
+    def GetProgress(self):
+        """Get current convert task progress.
         """
         progress = self._monitor.progress
         return progress
+
+    cdef int _cancel(self, void* cancel_this, int words):
+        """Return ture to cancel porcess task.
+        """
+        return True
+
+    def Cancel(self):
+        """Cancel current task.
+        """
+        cdef: self._monitor.cancel_this = <void*> NULL;
+        self._monitor.cancel = <CANCEL_FUNC>(self._cancel);
+        self._monitor.cancel(self._monitor.cancel_this,self._monitor.count);
+        return True
 
     """Methods to retrieve information after :meth:`SetImage`,
     :meth:`Recognize` or :meth:`TesseractRect`. (:meth:`Recognize` is called implicitly if needed.)"""
