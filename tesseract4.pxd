@@ -1,6 +1,11 @@
 from libcpp cimport bool
+from libc.stdio cimport FILE
 ctypedef const char cchar_t
 ctypedef const unsigned char cuchar_t
+
+cdef extern from "stdio.h":
+    FILE *fopen(cchar_t *, cchar_t*)
+    int fclose (FILE *)
 
 cdef extern from "leptonica/allheaders.h" nogil:
     struct Pix
@@ -29,10 +34,13 @@ cdef extern from "leptonica/allheaders.h" nogil:
     char *getLeptonicaVersion()
     Pix *pixRead(cchar_t *)
     Pix *pixReadMem(cuchar_t *, size_t)
+    Pix *pixReadFromMultipageTiff(cchar_t *, size_t * )
     int pixWriteMemJpeg(unsigned char **, size_t *, Pix *, int, int)
     int pixGetInputFormat(Pix *)
     int pixWriteMem(unsigned char **, size_t *, Pix *, int)
     void pixDestroy(Pix **)
+    int findFileFormat(cchar_t *, int *)
+    int tiffGetCount(FILE *, int *)
     int setMsgSeverity(int)
     void pixaDestroy(Pixa **)
     void boxaDestroy(Boxa **)
@@ -45,6 +53,28 @@ cdef extern from "leptonica/allheaders.h" nogil:
         L_SEVERITY_WARNING  = 4   # Print warning and higher messages
         L_SEVERITY_ERROR    = 5   # Print error and higher messages
         L_SEVERITY_NONE     = 6   # Highest severity: print no messages
+
+cdef extern from "leptonica/imageio.h" nogil:
+    cdef enum:
+        IFF_UNKNOWN
+        IFF_BMP
+        IFF_JFIF_JPEG
+        IFF_PNG 
+        IFF_TIFF 
+        IFF_TIFF_PACKBITS
+        IFF_TIFF_RLE
+        IFF_TIFF_G3
+        IFF_TIFF_G4
+        IFF_TIFF_LZW
+        IFF_TIFF_ZIP
+        IFF_PNM
+        IFF_PS
+        IFF_GIF 
+        IFF_JP2
+        IFF_WEBP
+        IFF_LPDF
+        IFF_DEFAULT
+        IFF_SPIX
 
 cdef extern from "tesseract/publictypes.h" nogil:
     cdef enum PolyBlockType:
@@ -178,6 +208,9 @@ cdef extern from "tesseract/resultiterator.h" namespace "tesseract" nogil:
 cdef extern from "tesseract/renderer.h" namespace "tesseract" nogil:
     cdef cppclass TessResultRenderer:
         void insert(TessResultRenderer *)
+        bool AddImage(TessBaseAPI *api)
+        bool BeginDocument (const char *title)
+        bool EndDocument()
 
     cdef cppclass TessTextRenderer(TessResultRenderer):
         TessTextRenderer(cchar_t *) except +

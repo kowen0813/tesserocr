@@ -35,6 +35,7 @@ ELSE:
     from tesseract cimport *
 from libc.stdlib cimport malloc, free
 from cpython.version cimport PY_MAJOR_VERSION
+from cpython cimport bool as pybool
 
 
 cdef bytes _b(s):
@@ -1113,6 +1114,8 @@ cdef class PyTessBaseAPI:
         TessBaseAPI _baseapi
         Pix *_pix
         ETEXT_DESC _monitor
+        int _page
+        int _totalpage
 
     @staticmethod
     def Version():
@@ -1132,6 +1135,8 @@ cdef class PyTessBaseAPI:
             cchar_t *cpath = py_path
             cchar_t *clang = py_lang
         with nogil:
+            self._page = 0
+            self._totalpage = 0
             self._pix = NULL
             if init:
                 self._init_api(cpath, clang, oem, NULL, 0, NULL, NULL, False, psm)
@@ -1882,22 +1887,34 @@ cdef class PyTessBaseAPI:
         return res == 0
 
     def GetProgress(self):
-        """Get current convert task progress.
+        """Get current convert task status.
+
+        This API only work after meth:`Recognize2monitor` or meth:`Convert`.
+        Returns:
+            dict: {"progress":int, "page":int, "total":int}
+                progress: progress for this page.
+                page: processs page number.
+                total: total page.
         """
         progress = self._monitor.progress
-        return progress
+        page_number = self._page +1
+        return {"progress": progress,"page": page_number,"total":self._totalpage}
 
     cdef int _cancel(self, void* cancel_this, int words):
         """Return ture to cancel porcess task.
         """
+        #TODO: process or judgment something for cancal task.
         return True
 
     def Cancel(self):
         """Cancel current task.
+
+        This API only work after meth:`Recognize2monitor` or meth:`Convert`.
+        
         """
-        cdef: self._monitor.cancel_this = <void*> NULL;
-        self._monitor.cancel = <CANCEL_FUNC>(self._cancel);
-        self._monitor.cancel(self._monitor.cancel_this,self._monitor.count);
+        cdef: self._monitor.cancel_this = <void*> NULL
+        self._monitor.cancel = <CANCEL_FUNC>(self._cancel)
+        self._monitor.cancel(self._monitor.cancel_this,self._monitor.count)
         return True
 
     """Methods to retrieve information after :meth:`SetImage`,
@@ -2066,6 +2083,138 @@ cdef class PyTessBaseAPI:
                 pixDestroy(&pix)
                 del renderer
         raise RuntimeError('No renderers enabled')
+
+    cdef _processPage(self, outputbase, Pix *pix, int page_index, cchar_t *cfname, TessResultRenderer *renderer):
+        """Turn a single image into symbolic text.
+
+        See :meth:`ProcessPages` for desciptions of the keyword arguments
+        and all other details.
+
+        Args:
+            outputbase (str): The name of the output file excluding
+                extension. For example, "/path/to/chocolate-chip-cookie-recipe".
+            pix  The image processed.
+            page_index (int): Page index.
+            cfname (str): `cfname` and `page_index` are metadata
+                used by side-effect processes, such as reading a box
+                file or formatting as hOCR.
+            renderer: TessResultRenderer instance.
+        """
+
+        try:
+            self._baseapi.SetInputName(cfname)
+            # NOTE: If page number or progress is incorrect, modify it.
+            self._monitor.progress = 0
+            self._baseapi.SetImage(pix)
+            self._page = page_index
+            self.Recognize2monitor()
+            renderer.AddImage(&(self._baseapi))
+            return True
+        except:
+            return False
+        finally:
+            pixDestroy(&pix)
+
+    def Convert(self, filename, outputbase, multipage = None):
+        """Turns images into symbolic text.
+        It likes API ProcessPage with monitor/cancel feature by call API GetProgress/Cancel.
+
+        Set at least one of the following variables to enable renderers
+        before calling this method::
+
+            tessedit_create_hocr (bool): hOCR Renderer
+                if ``font_info`` is ``True`` then it'll be included in the output.
+            tessedit_create_pdf (bool): PDF Renderer
+            tessedit_write_unlv (bool): UNLV Renderer
+            tessedit_create_boxfile (bool): Box Text Renderer
+            tessedit_create_txt (bool): Text Renderer
+
+        .. note:
+
+            If tessedit_page_number variable is non-negative, will only process that
+            single page. Works for multi-page tiff file, or filelist.
+
+        Args:
+            outputbase (str): The name of the output file excluding
+                extension. For example, "/path/to/chocolate-chip-cookie-recipe".
+            filename (str): Can point to a single image, a multi-page TIFF,
+                or a plain text list of image filenames.
+
+        Kwargs:
+            multipage (bool): Is force define to multipage.
+
+        Returns:
+            bool: True if successful, False on error.
+
+        Raises:
+            :exc:`RuntimeError`: If no renderers enabled in api variables.
+        """
+        cdef:
+            int format
+            size_t offset = 0
+            Pix *pix = NULL
+            bytes py_fname = _b(filename)
+            cchar_t *cfname = py_fname
+            bytes py_outputbase = _b(outputbase)
+            TessResultRenderer *renderer = self._get_renderer(py_outputbase)
+            int p_paage
+            FILE *fp
+
+        #auto-detection format
+        istiff = False
+        if multipage == None:
+            r = findFileFormat(filename, &format)
+            istiff = (format == IFF_TIFF or format == IFF_TIFF_PACKBITS or
+                           format == IFF_TIFF_RLE or format == IFF_TIFF_G3 or
+                           format == IFF_TIFF_G4 or format == IFF_TIFF_LZW or
+                           format == IFF_TIFF_ZIP)
+        else:
+            istiff = pybool(multipage)
+
+        renderer.BeginDocument("")
+        if istiff:
+            try:
+                fp = fopen(cfname, 'rb')
+                r = tiffGetCount(fp, &p_paage)
+            except:
+                p_paage = 0
+            finally:
+                fclose(fp)
+                self._totalpage = p_paage
+
+            #porting from ProcessPagesMultipageTiff()
+            tessedit_page_number = self.GetIntVariable("tessedit_page_number")
+            page = tessedit_page_number if tessedit_page_number >= 0 else 0
+            
+            while True:
+                if tessedit_page_number >=0:
+                    page = tessedit_page_number
+                pix = pixReadFromMultipageTiff(filename, &offset)
+                if (pix == NULL):
+                    break
+                print "Page %s\n" % (page + 1)
+                self.SetVariable("applybox_page", str(page))
+                r = self._processPage(outputbase, pix, page, filename, renderer)
+                if not r:
+                    return False
+                if tessedit_page_number >=0:
+                    break
+                if not offset:
+                    break
+                page += 1
+        else: #non-tiff
+            self._totalpage = 1
+            with nogil:
+                #self._destroy_pix()
+                pix = pixRead(cfname)
+                if pix == NULL:
+                    with gil:
+                        raise RuntimeError('Failed to read picture')
+
+            self._processPage(outputbase,pix,0,filename,renderer)
+        renderer.EndDocument()
+        del renderer
+        return True
 
     def GetIterator(self):
         """Get a reading-order iterator to the results of :meth:`LayoutAnalysis` and/or
