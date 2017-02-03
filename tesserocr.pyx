@@ -2107,9 +2107,9 @@ cdef class PyTessBaseAPI:
             self._monitor.progress = 0
             self._baseapi.SetImage(pix)
             self._page = page_index
-            self.Recognize2monitor()
+            result = self.Recognize2monitor()
             renderer.AddImage(&(self._baseapi))
-            return True
+            return result
         except:
             return False
         finally:
@@ -2196,6 +2196,8 @@ cdef class PyTessBaseAPI:
                 self.SetVariable("applybox_page", str(page))
                 r = self._processPage(outputbase, pix, page, filename, renderer)
                 if not r:
+                    renderer.EndDocument()
+                    del renderer
                     return False
                 if tessedit_page_number >=0:
                     break
